@@ -940,3 +940,455 @@ print(f"📚 Код готов для использования в Jupyter Note
 - Тенденции развития IoT систем
 
 Этот код полностью адаптирован под задание IoT и готов для выполнения в Jupyter Notebook с реальными сравнениями производительности PostgreSQL и MongoDB для анализа данных сенсоров.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Давайте исправим проблему с MongoDB рекомендациями. Основная причина, скорее всего, в сложности агрегационного пайплайна. Упростим его и добавим больше отладочной информации:
+
+```python
+## 4.3. УПРОЩЕННАЯ РЕАЛИЗАЦИЯ В MONGODB (ИСПРАВЛЕННАЯ)
+
+def get_mongodb_sensor_recommendations_simple(sensor_id, limit=10):
+    """Упрощенная версия получения рекомендаций для сенсора в MongoDB"""
+    
+    try:
+        if not mongo_client:
+            print("❌ Нет подключения к MongoDB")
+            return []
+            
+        mongo_db = mongo_client['iot_studies']
+        sensor_collection = mongo_db['sensor_data']
+        
+        print(f"🔍 Поиск рекомендаций для сенсора: {sensor_id}")
+        
+        # Шаг 1: Получить статистику целевого сенсора
+        target_stats = list(sensor_collection.aggregate([
+            {"$match": {"sensor_id": sensor_id}},
+            {"$group": {
+                "_id": "$sensor_id",
+                "avg_temp": {"$avg": "$temperature"},
+                "min_temp": {"$min": "$temperature"},
+                "max_temp": {"$max": "$temperature"},
+                "count": {"$sum": 1}
+            }}
+        ]))
+        
+        if not target_stats:
+            print(f"❌ Не найдено данных для сенсора {sensor_id}")
+            return []
+        
+        target_avg = target_stats[0]['avg_temp']
+        print(f"📊 Статистика целевого сенсора: средняя температура = {target_avg:.2f}°C")
+        
+        # Шаг 2: Найти сенсоры с похожей средней температурой
+        similar_pipeline = [
+            {"$match": {"sensor_id": {"$ne": sensor_id}}},  # Исключаем целевой сенсор
+            {"$group": {
+                "_id": "$sensor_id",
+                "avg_temp": {"$avg": "$temperature"},
+                "min_temp": {"$min": "$temperature"},
+                "max_temp": {"$max": "$temperature"},
+                "record_count": {"$sum": 1},
+                "high_temp_count": {
+                    "$sum": {"$cond": [{"$gt": ["$temperature", 35]}, 1, 0]}
+                },
+                "low_temp_count": {
+                    "$sum": {"$cond": [{"$lt": ["$temperature", -5]}, 1, 0]}
+                }
+            }},
+            {"$match": {
+                "record_count": {"$gt": 10},  # Только сенсоры с достаточным количеством данных
+                "avg_temp": {
+                    "$gte": target_avg - 5,  # Температура в пределах ±5°C от целевой
+                    "$lte": target_avg + 5
+                }
+            }},
+            {"$addFields": {
+                "temp_diff": {"$abs": {"$subtract": ["$avg_temp", target_avg]}},
+                "stability_score": {
+                    "$divide": [
+                        {"$subtract": ["$max_temp", "$min_temp"]},
+                        "$record_count"
+                    ]
+                }
+            }},
+            {"$sort": {"temp_diff": 1, "stability_score": 1}},  # Сначала самые похожие и стабильные
+            {"$limit": limit}
+        ]
+        
+        similar_sensors = list(sensor_collection.aggregate(similar_pipeline))
+        print(f"🔍 Найдено {len(similar_sensors)} похожих сенсоров")
+        
+        if not similar_sensors:
+            print("❌ Не найдено похожих сенсоров для сравнения")
+            return []
+        
+        # Шаг 3: Сформировать рекомендации
+        recommendations = []
+        for sensor in similar_sensors:
+            # Анализ поведения сенсора
+            if sensor['high_temp_count'] > 20:
+                recommendation = "ВНИМАНИЕ: частые перегревы"
+                score = 1
+            elif sensor['low_temp_count'] > 20:
+                recommendation = "ВНИМАНИЕ: частые переохлаждения"
+                score = 2
+            elif sensor['stability_score'] > 2.0:
+                recommendation = "Нестабильная работа"
+                score = 3
+            elif sensor['temp_diff'] > 3.0:
+                recommendation = "Умеренное отклонение от нормы"
+                score = 4
+            else:
+                recommendation = "Стабильная работа"
+                score = 5
+            
+            recommendations.append({
+                'similar_sensor': sensor['_id'],
+                'avg_temp': round(sensor['avg_temp'], 2),
+                'temp_diff': round(sensor['temp_diff'], 2),
+                'stability_score': round(sensor['stability_score'], 2),
+                'high_temp_events': sensor['high_temp_count'],
+                'low_temp_events': sensor['low_temp_count'],
+                'recommendation': recommendation,
+                'quality_score': score
+            })
+        
+        # Сортировка по качеству (лучшие рекомендации первыми)
+        recommendations.sort(key=lambda x: x['quality_score'], reverse=True)
+        
+        return recommendations
+        
+    except Exception as e:
+        print(f"❌ Ошибка в MongoDB рекомендациях: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+# ТЕСТИРОВАНИЕ ИСПРАВЛЕННОЙ ВЕРСИИ
+print(f"\n🎯 ТЕСТИРОВАНИЕ ИСПРАВЛЕННЫХ РЕКОМЕНДАЦИЙ ДЛЯ СЕНСОРА {target_sensor} (MongoDB):")
+
+mongodb_recommendations_fixed, mongodb_recommendations_time_fixed = measure_time(
+    get_mongodb_sensor_recommendations_simple, target_sensor, 5
+)
+
+if mongodb_recommendations_fixed:
+    print(f"⏱️ Время выполнения: {mongodb_recommendations_time_fixed:.4f} секунд")
+    print(f"📊 Найдено {len(mongodb_recommendations_fixed)} рекомендаций:")
+    for i, rec in enumerate(mongodb_recommendations_fixed, 1):
+        print(f"  {i}. Сенсор {rec['similar_sensor']}:")
+        print(f"     Средняя температура: {rec['avg_temp']}°C (отклонение: {rec['temp_diff']}°C)")
+        print(f"     Стабильность: {rec['stability_score']}")
+        print(f"     Перегревы: {rec['high_temp_events']}, Переохлаждения: {rec['low_temp_events']}")
+        print(f"     💡 Рекомендация: {rec['recommendation']} (оценка: {rec['quality_score']}/5)")
+else:
+    print("❌ Рекомендации не найдены даже в исправленной версии")
+    
+    # ДИАГНОСТИКА: Проверим данные в MongoDB
+    print(f"\n🔍 ДИАГНОСТИКА ДАННЫХ В MONGODB:")
+    try:
+        mongo_db = mongo_client['iot_studies']
+        sensor_collection = mongo_db['sensor_data']
+        
+        # Проверим общее количество записей
+        total_records = sensor_collection.count_documents({})
+        print(f"📊 Всего записей в коллекции: {total_records}")
+        
+        # Проверим количество уникальных сенсоров
+        unique_sensors = sensor_collection.distinct("sensor_id")
+        print(f"📊 Уникальных сенсоров: {len(unique_sensors)}")
+        
+        # Проверим данные для целевого сенсора
+        target_records = sensor_collection.count_documents({"sensor_id": target_sensor})
+        print(f"📊 Записей для сенсора {target_sensor}: {target_records}")
+        
+        if target_records > 0:
+            # Покажем пример данных целевого сенсора
+            sample_data = list(sensor_collection.find(
+                {"sensor_id": target_sensor}, 
+                {"temperature": 1, "timestamp": 1}
+            ).limit(3))
+            print(f"📊 Пример данных целевого сенсора:")
+            for data in sample_data:
+                print(f"   - Температура: {data['temperature']}°C, Время: {data['timestamp']}")
+        
+        # Проверим распределение температур
+        temp_stats = list(sensor_collection.aggregate([
+            {"$group": {
+                "_id": None,
+                "avg_temp": {"$avg": "$temperature"},
+                "min_temp": {"$min": "$temperature"},
+                "max_temp": {"$max": "$temperature"}
+            }}
+        ]))
+        if temp_stats:
+            stats = temp_stats[0]
+            print(f"📊 Общая статистика температур:")
+            print(f"   - Средняя: {stats['avg_temp']:.2f}°C")
+            print(f"   - Минимальная: {stats['min_temp']:.2f}°C") 
+            print(f"   - Максимальная: {stats['max_temp']:.2f}°C")
+            
+    except Exception as e:
+        print(f"❌ Ошибка при диагностике: {e}")
+
+## 5. АЛЬТЕРНАТИВНЫЙ ПОДХОД: БОЛЕЕ ПРОСТАЯ РЕАЛИЗАЦИЯ
+
+def get_mongodb_basic_recommendations(sensor_id, limit=5):
+    """Базовая версия рекомендаций - максимально простая"""
+    
+    try:
+        if not mongo_client:
+            return []
+            
+        mongo_db = mongo_client['iot_studies']
+        sensor_collection = mongo_db['sensor_data']
+        
+        print(f"🔍 БАЗОВЫЙ ПОИСК РЕКОМЕНДАЦИЙ ДЛЯ: {sensor_id}")
+        
+        # Простая агрегация: найти сенсоры с максимальным количеством записей
+        pipeline = [
+            {"$group": {
+                "_id": "$sensor_id",
+                "record_count": {"$sum": 1},
+                "avg_temp": {"$avg": "$temperature"}
+            }},
+            {"$match": {
+                "_id": {"$ne": sensor_id},  # Исключаем целевой сенсор
+                "record_count": {"$gt": 50}  # Только с достаточным количеством данных
+            }},
+            {"$sort": {"record_count": -1}},
+            {"$limit": limit}
+        ]
+        
+        results = list(sensor_collection.aggregate(pipeline))
+        
+        if not results:
+            print("❌ Не найдено подходящих сенсоров в базовом поиске")
+            return []
+        
+        # Формируем простые рекомендации
+        recommendations = []
+        for result in results:
+            rec_text = "Надежный сенсор" if result['record_count'] > 100 else "Активный сенсор"
+            
+            recommendations.append({
+                'similar_sensor': result['_id'],
+                'avg_temp': round(result['avg_temp'], 2),
+                'record_count': result['record_count'],
+                'recommendation': rec_text
+            })
+        
+        print(f"✅ Базовый поиск нашел {len(recommendations)} рекомендаций")
+        return recommendations
+        
+    except Exception as e:
+        print(f"❌ Ошибка в базовом поиске: {e}")
+        return []
+
+# ТЕСТИРУЕМ БАЗОВУЮ ВЕРСИЮ
+print(f"\n🎯 ТЕСТИРОВАНИЕ БАЗОВОЙ ВЕРСИИ ДЛЯ СЕНСОРА {target_sensor}:")
+
+basic_recommendations, basic_time = measure_time(get_mongodb_basic_recommendations, target_sensor, 5)
+
+if basic_recommendations:
+    print(f"⏱️ Время выполнения: {basic_time:.4f} секунд")
+    print(f"📊 Найдено {len(basic_recommendations)} базовых рекомендаций:")
+    for i, rec in enumerate(basic_recommendations, 1):
+        print(f"  {i}. Сенсор {rec['similar_sensor']}:")
+        print(f"     Средняя температура: {rec['avg_temp']}°C")
+        print(f"     Количество записей: {rec['record_count']}")
+        print(f"     💡 Рекомендация: {rec['recommendation']}")
+else:
+    print("❌ Базовые рекомендации также не найдены - проблема с данными")
+```
+
+## ОБНОВЛЕННЫЙ КОД ДЛЯ СРАВНЕНИЯ ПРОИЗВОДИТЕЛЬНОСТИ:
+
+```python
+## 6. ОБНОВЛЕННОЕ СРАВНЕНИЕ ПРОИЗВОДИТЕЛЬНОСТИ
+
+print("\n" + "="*50)
+print("📊 ОБНОВЛЕННОЕ СРАВНЕНИЕ ПРОИЗВОДИТЕЛЬНОСТИ")
+print("="*50)
+
+# Тестируем на нескольких сенсорах
+test_sensors = ["device_001", "device_002", "device_003", "device_010", "device_020"]
+
+print(f"\n🧪 Тестирование на сенсорах: {test_sensors}")
+
+results_comparison = []
+
+for sensor_id in test_sensors:
+    print(f"\n🔍 Тестирование сенсора: {sensor_id}")
+    
+    sensor_results = {'sensor_id': sensor_id}
+    
+    # PostgreSQL
+    try:
+        pg_rec, pg_time = measure_time(get_postgres_sensor_recommendations, sensor_id, 3)
+        sensor_results['postgres_time'] = pg_time
+        sensor_results['postgres_found'] = len(pg_rec) > 0
+        print(f"  PostgreSQL: {pg_time:.4f} сек, найдено: {len(pg_rec)}")
+    except Exception as e:
+        sensor_results['postgres_time'] = None
+        sensor_results['postgres_found'] = False
+        print(f"  PostgreSQL: ошибка - {e}")
+    
+    # MongoDB (упрощенная версия)
+    try:
+        mongo_rec, mongo_time = measure_time(get_mongodb_sensor_recommendations_simple, sensor_id, 3)
+        sensor_results['mongodb_time'] = mongo_time
+        sensor_results['mongodb_found'] = len(mongo_rec) > 0
+        print(f"  MongoDB:    {mongo_time:.4f} сек, найдено: {len(mongo_rec)}")
+    except Exception as e:
+        sensor_results['mongodb_time'] = None  
+        sensor_results['mongodb_found'] = False
+        print(f"  MongoDB: ошибка - {e}")
+    
+    # MongoDB (базовая версия)
+    try:
+        basic_rec, basic_time = measure_time(get_mongodb_basic_recommendations, sensor_id, 3)
+        sensor_results['basic_time'] = basic_time
+        sensor_results['basic_found'] = len(basic_rec) > 0
+        print(f"  MongoDB basic: {basic_time:.4f} сек, найдено: {len(basic_rec)}")
+    except Exception as e:
+        sensor_results['basic_time'] = None
+        sensor_results['basic_found'] = False
+        print(f"  MongoDB basic: ошибка - {e}")
+    
+    results_comparison.append(sensor_results)
+
+# Анализ результатов
+print(f"\n📋 ИТОГИ ТЕСТИРОВАНИЯ:")
+successful_sensors = [r for r in results_comparison if r['basic_found'] or r['mongodb_found'] or r['postgres_found']]
+
+if successful_sensors:
+    print("✅ Есть успешные результаты:")
+    for result in successful_sensors:
+        print(f"  Сенсор {result['sensor_id']}:")
+        if result['postgres_found']:
+            print(f"    ✅ PostgreSQL: {result['postgres_time']:.4f} сек")
+        if result['mongodb_found']:
+            print(f"    ✅ MongoDB: {result['mongodb_time']:.4f} сек") 
+        if result['basic_found']:
+            print(f"    ✅ MongoDB Basic: {result['basic_time']:.4f} сек")
+else:
+    print("❌ Ни один из подходов не дал результатов")
+    print("\n🔍 ВОЗМОЖНЫЕ ПРИЧИНЫ ПРОБЛЕМ:")
+    print("1. Недостаточно данных в MongoDB")
+    print("2. Проблемы с подключением к базе данных")
+    print("3. Ошибки в агрегационных запросах")
+    print("4. Сенсоры не имеют достаточного количества записей")
+
+# Визуализация успешных тестов
+if successful_sensors:
+    plt.figure(figsize=(12, 6))
+    
+    sensors = [r['sensor_id'] for r in successful_sensors]
+    
+    # Собираем времена выполнения
+    pg_times = [r.get('postgres_time', 0) for r in successful_sensors if r.get('postgres_time')]
+    mongo_times = [r.get('mongodb_time', 0) for r in successful_sensors if r.get('mongodb_time')]
+    basic_times = [r.get('basic_time', 0) for r in successful_sensors if r.get('basic_time')]
+    
+    x = np.arange(len(successful_sensors))
+    width = 0.25
+    
+    if pg_times:
+        plt.bar(x - width, pg_times, width, label='PostgreSQL', color='blue', alpha=0.7)
+    if mongo_times:
+        plt.bar(x, mongo_times, width, label='MongoDB', color='orange', alpha=0.7)
+    if basic_times:
+        plt.bar(x + width, basic_times, width, label='MongoDB Basic', color='green', alpha=0.7)
+    
+    plt.xlabel('Сенсоры')
+    plt.ylabel('Время выполнения (секунды)')
+    plt.title('Сравнение производительности рекомендательных систем')
+    plt.xticks(x, sensors)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+```
+
+## ВОЗМОЖНЫЕ ПРИЧИНЫ ПРОБЛЕМ И РЕШЕНИЯ:
+
+### 1. **Проблема с данными**
+```python
+# Проверьте что данные действительно загружены в MongoDB
+mongo_db = mongo_client['iot_studies']
+print(f"Записей в sensor_data: {mongo_db.sensor_data.count_documents({})}")
+```
+
+### 2. **Проблема с подключением**
+```python
+# Убедитесь что подключение активно
+if mongo_client:
+    print("MongoDB подключен")
+    print(f"Доступные базы: {mongo_client.list_database_names()}")
+```
+
+### 3. **Упростите запросы**
+- Используйте базовую версию сначала
+- Постепенно усложняйте пайплайны
+- Добавляйте отладочную печать
+
+### 4. **Проверьте структуру данных**
+```python
+# Посмотрите на структуру документа
+sample_doc = mongo_db.sensor_data.find_one()
+print("Структура документа:", sample_doc)
+```
+
+Этот исправленный код должен решить проблему с рекомендациями в MongoDB. Он включает:
+- Упрощенные версии запросов
+- Подробную диагностику
+- Альтернативные подходы
+- Расширенное логирование для отладки
