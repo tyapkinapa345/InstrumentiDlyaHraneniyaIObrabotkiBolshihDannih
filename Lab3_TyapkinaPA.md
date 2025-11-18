@@ -72,7 +72,7 @@ CREATE TABLE sensor_data (
 ```
 Генерация данных Python (1,000,000 записей)
          ↓
-    [DataFrame → CSV]
+    [DataFrame → JSON]
          ↓
          ├── PostgreSQL 
          │      ↓ (табличная структура)
