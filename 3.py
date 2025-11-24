@@ -109,13 +109,12 @@ else:
 
 
 
-
-# ГРАФИКИ ДЛЯ POSTGRESQL - ПОЛНЫЙ АНАЛИЗ
+# ГРАФИКИ ДЛЯ POSTGRESQL - ПОЛНЫЙ АНАЛИЗ С ВРЕМЕННЫМИ ХАРАКТЕРИСТИКАМИ
 print("\n📊 POSTGRESQL: ПОЛНЫЙ АНАЛИЗ ДАННЫХ")
 print("="*50)
 
 def get_postgres_complete_analysis():
-    """Полный анализ данных в PostgreSQL"""
+    """Полный анализ данных в PostgreSQL с временными характеристиками"""
     try:
         conn = psycopg2.connect(**pg_conn_params)
         
@@ -298,6 +297,121 @@ def get_postgres_complete_analysis():
             print(f"   • Глобальная средняя температура: {analytics[1]:.2f}°C")
             print(f"   • Медианная температура: {analytics[2]:.2f}°C")
             print(f"   • Самый активный сенсор: {analytics[3]}")
+            
+            # 3. ДОПОЛНИТЕЛЬНЫЕ ГРАФИКИ - РАСПРЕДЕЛЕНИЕ ПО МЕСЯЦАМ
+            print(f"\n📅 РАСПРЕДЕЛЕНИЕ ДАННЫХ ПО МЕСЯЦАМ (PostgreSQL)")
+            
+            cur.execute("""
+                SELECT 
+                    TO_CHAR(timestamp, 'YYYY-MM') as month,
+                    AVG(temperature) as avg_temp,
+                    COUNT(*) as record_count
+                FROM sensor_data
+                GROUP BY TO_CHAR(timestamp, 'YYYY-MM')
+                ORDER BY month
+            """)
+            monthly_data = cur.fetchall()
+            
+            # Подготовка данных для графиков
+            months = [item[0] for item in monthly_data]
+            monthly_temps = [float(item[1]) for item in monthly_data]
+            monthly_counts = [item[2] for item in monthly_data]
+            
+            # Графики временного распределения
+            plt.figure(figsize=(15, 10))
+            
+            # График 1: Средняя температура по месяцам
+            plt.subplot(2, 2, 1)
+            plt.plot(months, monthly_temps, 'o-', linewidth=2, markersize=4, color='red', alpha=0.7)
+            plt.title('Средняя температура по месяцам (PostgreSQL)')
+            plt.xlabel('Месяц')
+            plt.ylabel('Средняя температура (°C)')
+            plt.xticks(rotation=45)
+            plt.grid(True, alpha=0.3)
+            
+            # График 2: Количество записей по месяцам
+            plt.subplot(2, 2, 2)
+            plt.bar(months, monthly_counts, color='green', alpha=0.7)
+            plt.title('Количество записей по месяцам (PostgreSQL)')
+            plt.xlabel('Месяц')
+            plt.ylabel('Количество записей')
+            plt.xticks(rotation=45)
+            plt.grid(True, alpha=0.3)
+            
+            # График 3: Распределение влажности
+            plt.subplot(2, 2, 3)
+            cur.execute("""
+                SELECT sensor_id, AVG(humidity) as avg_humidity
+                FROM sensor_data
+                GROUP BY sensor_id
+                ORDER BY avg_humidity DESC
+            """)
+            humidity_data = cur.fetchall()
+            
+            humidity_sensors = [item[0] for item in humidity_data]
+            humidity_values = [float(item[1]) for item in humidity_data]
+            
+            plt.bar(range(len(humidity_sensors)), humidity_values, color='blue', alpha=0.7)
+            plt.title('Средняя влажность по сенсорам (PostgreSQL)')
+            plt.xlabel('Сенсоры')
+            plt.ylabel('Средняя влажность (%)')
+            plt.xticks(range(len(humidity_sensors)), humidity_sensors, rotation=90, fontsize=6)
+            plt.grid(True, alpha=0.3)
+            
+            # График 4: Распределение давления
+            plt.subplot(2, 2, 4)
+            cur.execute("""
+                SELECT sensor_id, AVG(pressure) as avg_pressure
+                FROM sensor_data
+                GROUP BY sensor_id
+                ORDER BY avg_pressure DESC
+            """)
+            pressure_data = cur.fetchall()
+            
+            pressure_sensors = [item[0] for item in pressure_data]
+            pressure_values = [float(item[1]) for item in pressure_data]
+            
+            plt.bar(range(len(pressure_sensors)), pressure_values, color='purple', alpha=0.7)
+            plt.title('Среднее давление по сенсорам (PostgreSQL)')
+            plt.xlabel('Сенсоры')
+            plt.ylabel('Среднее давление (hPa)')
+            plt.xticks(range(len(pressure_sensors)), pressure_sensors, rotation=90, fontsize=6)
+            plt.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            plt.show()
+            
+            # 4. СТАТИСТИКА ПО СЕНСОРАМ
+            print(f"\n📋 СТАТИСТИКА ПО ВСЕМ СЕНСОРАМ (PostgreSQL):")
+            
+            cur.execute("""
+                SELECT 
+                    sensor_id,
+                    COUNT(*) as records,
+                    AVG(temperature) as avg_temp,
+                    MAX(temperature) as max_temp,
+                    MIN(temperature) as min_temp,
+                    STDDEV(temperature) as std_temp,
+                    AVG(humidity) as avg_humidity,
+                    AVG(pressure) as avg_pressure,
+                    AVG(battery_level) as avg_battery
+                FROM sensor_data
+                GROUP BY sensor_id
+                ORDER BY records DESC
+            """)
+            sensor_stats = cur.fetchall()
+            
+            # Создаем DataFrame для удобного отображения
+            stats_columns = ['sensor_id', 'records', 'avg_temp', 'max_temp', 'min_temp', 'std_temp', 'avg_humidity', 'avg_pressure', 'avg_battery']
+            stats_df = pd.DataFrame(sensor_stats, columns=stats_columns)
+            
+            print(f"Всего сенсоров: {len(stats_df)}")
+            print(f"\nОбщая статистика по сенсорам:")
+            print(f"• Среднее количество записей на сенсор: {stats_df['records'].mean():.0f}")
+            print(f"• Мин-макс записей: {stats_df['records'].min()} - {stats_df['records'].max()}")
+            print(f"• Средняя температура по сенсорам: {stats_df['avg_temp'].mean():.2f}°C")
+            print(f"• Средняя влажность по сенсорам: {stats_df['avg_humidity'].mean():.2f}%")
+            print(f"• Среднее давление по сенсорам: {stats_df['avg_pressure'].mean():.2f} hPa")
         
         conn.close()
         return True
