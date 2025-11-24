@@ -428,8 +428,8 @@ else:
 
 
 
-# ГРАФИКИ ДЛЯ MONGODB - ПОЛНЫЙ АНАЛИЗ
-print("📊 MONGODB: ПОЛНЫЙ АНАЛИЗ ДАННЫХ")
+# ГРАФИКИ ДЛЯ MONGODB - ИСПРАВЛЕННЫЙ КОД ДЛЯ ВРЕМЕННОГО РАСПРЕДЕЛЕНИЯ
+print("📊 MONGODB: ПОЛНЫЙ АНАЛИЗ ДАННЫХ (ИСПРАВЛЕННЫЙ)")
 print("="*50)
 
 if mongo_client:
@@ -570,27 +570,154 @@ if mongo_client:
     print(f"   • Минимальный уровень: {battery_stats['min_battery']:.2f}%")
     print(f"   • Максимальный уровень: {battery_stats['max_battery']:.2f}%")
     
-    # 3. Временные распределения
+    # 3. ИСПРАВЛЕННЫЙ КОД ДЛЯ ВРЕМЕННЫХ ХАРАКТЕРИСТИК
     print(f"\n🕒 ВРЕМЕННЫЕ ХАРАКТЕРИСТИКИ:")
+    
+    # Получаем первую и последнюю запись
     time_stats = list(mongo_client['iot_studies']['sensor_data'].aggregate([
         {"$group": {
             "_id": None,
             "first_record": {"$min": "$timestamp"},
-            "last_record": {"$max": "$timestamp"},
-            "total_days": {"$divide": [
-                {"$subtract": [{"$max": "$timestamp"}, {"$min": "$timestamp"}]},
-                1000 * 60 * 60 * 24  # milliseconds to days
-            ]}
+            "last_record": {"$max": "$timestamp"}
         }}
     ]))[0]
     
-    print(f"   • Первая запись: {time_stats['first_record']}")
-    print(f"   • Последняя запись: {time_stats['last_record']}")
-    print(f"   • Период покрытия: {time_stats['total_days']:.1f} дней")
+    first_record = time_stats['first_record']
+    last_record = time_stats['last_record']
+    
+    # Вычисляем разницу в Python
+    time_diff = last_record - first_record
+    total_days = time_diff.total_seconds() / (24 * 3600)
+    
+    print(f"   • Первая запись: {first_record}")
+    print(f"   • Последняя запись: {last_record}")
+    print(f"   • Период покрытия: {total_days:.1f} дней")
+    
+    # 4. ДОПОЛНИТЕЛЬНЫЕ ГРАФИКИ - РАСПРЕДЕЛЕНИЕ ПО МЕСЯЦАМ
+    print(f"\n📅 РАСПРЕДЕЛЕНИЕ ДАННЫХ ПО МЕСЯЦАМ")
+    
+    # Агрегация по месяцам
+    monthly_data = list(mongo_client['iot_studies']['sensor_data'].aggregate([
+        {
+            "$project": {
+                "year": {"$year": "$timestamp"},
+                "month": {"$month": "$timestamp"},
+                "temperature": 1
+            }
+        },
+        {
+            "$group": {
+                "_id": {"year": "$year", "month": "$month"},
+                "avg_temp": {"$avg": "$temperature"},
+                "record_count": {"$sum": 1}
+            }
+        },
+        {
+            "$sort": {"_id.year": 1, "_id.month": 1}
+        }
+    ]))
+    
+    # Подготовка данных для графиков
+    months = [f"{item['_id']['year']}-{item['_id']['month']:02d}" for item in monthly_data]
+    monthly_temps = [item['avg_temp'] for item in monthly_data]
+    monthly_counts = [item['record_count'] for item in monthly_data]
+    
+    # Графики временного распределения
+    plt.figure(figsize=(15, 10))
+    
+    # График 1: Средняя температура по месяцам
+    plt.subplot(2, 2, 1)
+    plt.plot(months, monthly_temps, 'o-', linewidth=2, markersize=4, color='red', alpha=0.7)
+    plt.title('Средняя температура по месяцам (MongoDB)')
+    plt.xlabel('Месяц')
+    plt.ylabel('Средняя температура (°C)')
+    plt.xticks(rotation=45)
+    plt.grid(True, alpha=0.3)
+    
+    # График 2: Количество записей по месяцам
+    plt.subplot(2, 2, 2)
+    plt.bar(months, monthly_counts, color='green', alpha=0.7)
+    plt.title('Количество записей по месяцам (MongoDB)')
+    plt.xlabel('Месяц')
+    plt.ylabel('Количество записей')
+    plt.xticks(rotation=45)
+    plt.grid(True, alpha=0.3)
+    
+    # График 3: Распределение влажности
+    plt.subplot(2, 2, 3)
+    humidity_data = list(mongo_client['iot_studies']['sensor_data'].aggregate([
+        {"$group": {
+            "_id": "$sensor_id", 
+            "avg_humidity": {"$avg": "$humidity"}
+        }},
+        {"$sort": {"avg_humidity": -1}}
+    ]))
+    
+    humidity_sensors = [item['_id'] for item in humidity_data]
+    humidity_values = [item['avg_humidity'] for item in humidity_data]
+    
+    plt.bar(range(len(humidity_sensors)), humidity_values, color='blue', alpha=0.7)
+    plt.title('Средняя влажность по сенсорам (MongoDB)')
+    plt.xlabel('Сенсоры')
+    plt.ylabel('Средняя влажность (%)')
+    plt.xticks(range(len(humidity_sensors)), humidity_sensors, rotation=90, fontsize=6)
+    plt.grid(True, alpha=0.3)
+    
+    # График 4: Распределение давления
+    plt.subplot(2, 2, 4)
+    pressure_data = list(mongo_client['iot_studies']['sensor_data'].aggregate([
+        {"$group": {
+            "_id": "$sensor_id", 
+            "avg_pressure": {"$avg": "$pressure"}
+        }},
+        {"$sort": {"avg_pressure": -1}}
+    ]))
+    
+    pressure_sensors = [item['_id'] for item in pressure_data]
+    pressure_values = [item['avg_pressure'] for item in pressure_data]
+    
+    plt.bar(range(len(pressure_sensors)), pressure_values, color='purple', alpha=0.7)
+    plt.title('Среднее давление по сенсорам (MongoDB)')
+    plt.xlabel('Сенсоры')
+    plt.ylabel('Среднее давление (hPa)')
+    plt.xticks(range(len(pressure_sensors)), pressure_sensors, rotation=90, fontsize=6)
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # 5. СТАТИСТИКА ПО СЕНСОРАМ
+    print(f"\n📋 СТАТИСТИКА ПО ВСЕМ СЕНСОРАМ:")
+    
+    sensor_stats = list(mongo_client['iot_studies']['sensor_data'].aggregate([
+        {"$group": {
+            "_id": "$sensor_id",
+            "records": {"$sum": 1},
+            "avg_temp": {"$avg": "$temperature"},
+            "max_temp": {"$max": "$temperature"},
+            "min_temp": {"$min": "$temperature"},
+            "std_temp": {"$stdDevPop": "$temperature"},
+            "avg_humidity": {"$avg": "$humidity"},
+            "avg_pressure": {"$avg": "$pressure"},
+            "avg_battery": {"$avg": "$battery_level"}
+        }},
+        {"$sort": {"records": -1}}
+    ]))
+    
+    # Создаем DataFrame для удобного отображения
+    stats_df = pd.DataFrame(sensor_stats)
+    stats_df.rename(columns={'_id': 'sensor_id'}, inplace=True)
+    
+    print(f"Всего сенсоров: {len(stats_df)}")
+    print(f"\nОбщая статистика по сенсорам:")
+    print(f"• Среднее количество записей на сенсор: {stats_df['records'].mean():.0f}")
+    print(f"• Мин-макс записей: {stats_df['records'].min()} - {stats_df['records'].max()}")
+    print(f"• Средняя температура по сенсорам: {stats_df['avg_temp'].mean():.2f}°C")
+    print(f"• Средняя влажность по сенсорам: {stats_df['avg_humidity'].mean():.2f}%")
+    print(f"• Среднее давление по сенсорам: {stats_df['avg_pressure'].mean():.2f} hPa")
     
 else:
     print("❌ MongoDB не доступен для построения графиков")
-
 
 
 
