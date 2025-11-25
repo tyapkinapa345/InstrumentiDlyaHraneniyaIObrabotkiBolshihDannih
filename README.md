@@ -6,3 +6,4 @@
 3. [Лабораторная работа №3 - Сравнение подходов хранения больших данных](Lab3_TyapkinaPA.md);
     * [Код из Jupyter Notebook](Lab3_TyapkinaPA.ipynb);
 4. 
+https://disk.yandex.ru/d/7V5E76y5RpEMqQ
