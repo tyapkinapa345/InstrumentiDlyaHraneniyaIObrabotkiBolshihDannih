@@ -8,14 +8,20 @@ import sys
 import os
 
 def load_data(filepath):
-    """Загрузить данные из CSV файла с указанием кодировки utf-8"""
     try:
-        df = pd.read_csv(data_file, encoding='utf-8', sep=',', quotechar='"', engine='python', on_bad_lines='skip')  # пропуск строк с ошибками
+        df = pd.read_csv(filepath,
+                         encoding='utf-8',
+                         sep=',',
+                         quotechar='"',
+                         engine='python',
+                         on_bad_lines='skip',
+                         low_memory=False)
         print(f"Загружено строк: {len(df)}")
         return df
     except Exception as e:
         print(f"Ошибка при загрузке данных: {e}")
         sys.exit(1)
+
 
 def clean_data(df):
     """Очистка и подготовка данных"""
@@ -63,11 +69,11 @@ def find_max_mean_genre(df):
 
 def main():
     # Путь к файлу данных (укажите путь к вашему файлу)
-    data_file = '/opt/data/spotify_tracks.csv'
+    data_file = '/opt/data/database.csv'
     
     if not os.path.exists(data_file):
         # Попробовать локальный путь
-        data_file = 'spotify_tracks.csv'
+        data_file = 'database.csv'
     
     if not os.path.exists(data_file):
         print(f"Файл не найден: {data_file}")
