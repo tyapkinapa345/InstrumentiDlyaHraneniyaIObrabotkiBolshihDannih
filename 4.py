@@ -47,54 +47,60 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from hdfs import InsecureClient
 
-# --- 1. Подготовка данных и сортировка ---
-# Предполагается, что у вас уже есть DataFrame 'magnitude_by_type'
-df_sorted = magnitude_by_type.sort_values('Mean_Magnitude', ascending=False)
+# Предполагается, что у вас есть DataFrame magnitude_by_type с колонками:
+# 'Genre', 'Mean_Valence', 'Count'
 
-# --- 2. Создание улучшенного графика с seaborn ---
+# 1. Сортируем данные по средней valence для удобства отображения
+df_sorted = magnitude_by_type.sort_values('Mean_Valence', ascending=False)
+
+# 2. Создаем график
 plt.style.use('seaborn-v0_8-whitegrid')
 plt.figure(figsize=(12, 7))
 
 ax = sns.barplot(
-    x='Mean_Magnitude',
-    y='Type',
+    x='Mean_Valence',
+    y='Genre',
     data=df_sorted,
     palette='viridis_r'
 )
 
-min_val = df_sorted['Mean_Magnitude'].min()
+# Приближаем ось X для акцента на различиях
+min_val = df_sorted['Mean_Valence'].min()
 plt.xlim(left=min_val - 0.1)
 
+# Добавляем текстовые метки над барами с точными значениями
 for bar in ax.patches:
     ax.text(
         bar.get_width() + 0.01,
         bar.get_y() + bar.get_height() / 2,
-        f'{bar.get_width():.2f}',
+        f'{bar.get_width():.3f}',
         va='center', ha='left',
         fontsize=12, color='black'
     )
 
-plt.title('Сравнение средней магнитуды по типам событий', fontsize=16, pad=20)
-plt.xlabel('Средняя магнитуда (Mw)', fontsize=12)
-plt.ylabel('Тип события', fontsize=12)
+# Настройка заголовков и осей
+plt.title('Сравнение средней valence по жанрам', fontsize=16, pad=20)
+plt.xlabel('Средняя valence (позитивность)', fontsize=12)
+plt.ylabel('Жанр музыки', fontsize=12)
 sns.despine(left=True, bottom=True)
 plt.tight_layout()
 
-# --- 3. Сохранение графика в буфер памяти ---
+# 3. Сохраняем график в буфер памяти
 buffer = io.BytesIO()
 plt.savefig(buffer, format='png', dpi=300)
 plt.show()
 buffer.seek(0)
 
-# --- 4. Подключение к HDFS и запись файла ---
-hdfs_path = '/user/hadoop/results/magnitude_by_type.png'
+# 4. Подключение к HDFS и запись файла
+hdfs_path = '/user/hadoop/results/valence_by_genre.png'
 client = InsecureClient('http://hadoop:9870', user='root')
-
 client.makedirs(os.path.dirname(hdfs_path))
+
 with client.write(hdfs_path, overwrite=True) as writer:
     writer.write(buffer.getvalue())
 
-print(f"График успешно перезаписан в HDFS по пути: {hdfs_path}")
+print(f"График успешно сохранён в HDFS по пути: {hdfs_path}")
 
-# --- 5. Проверка результата ---
+# 5. Проверка содержимого директории HDFS
 os.system('hdfs dfs -ls /user/hadoop/results')
+
