@@ -85,6 +85,22 @@ df_clean['genre'] = df_clean['genre'].fillna('Unknown')
 print(f"Количество строк после очистки: {len(df_clean)}")
 print(f"Жанры в данных: {df_clean['genre'].unique()}")
 
+
+# Очищаем названия столбцов от лишних пробелов и знаков ';'
+df.columns = df.columns.str.strip().str.replace(';', '')
+
+# После очистки обращаемся уже к валидным именам колонок
+df_clean = df.copy()
+
+# Теперь колонка valence должна быть доступна под этим именем
+df_clean = df_clean[df_clean['valence'].notna()]
+
+# Аналогично для genre
+df_clean['genre'] = df_clean['genre'].fillna('Unknown')
+
+print(f"Количество строк после очистки: {len(df_clean)}")
+print(f"Уникальные жанры: {df_clean['genre'].unique()}")
+
 # Анализ valence по genre
 magnitude_by_type = df_clean.groupby('genre')['valence'].agg(['mean', 'count']).reset_index()
 magnitude_by_type.columns = ['Genre', 'Mean_Valence', 'Count']
