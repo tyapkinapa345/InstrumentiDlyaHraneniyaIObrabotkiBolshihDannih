@@ -7,12 +7,47 @@ import pandas as pd
 import sys
 import os
 
+def detect_encoding(filepath):
+    """Определить кодировку файла"""
+    import chardet
+    with open(filepath, 'rb') as f:
+        result = chardet.detect(f.read())
+    return result['encoding']
+
 def load_data(filepath):
     """Загрузить данные из CSV файла"""
     try:
+        # Сначала пробуем стандартную загрузку
         df = pd.read_csv(filepath, low_memory=False)
         print(f"Загружено строк: {len(df)}")
         return df
+    except UnicodeDecodeError:
+        # Если возникает ошибка кодировки, пробуем разные варианты
+        print("Обнаружена проблема с кодировкой, пробуем альтернативные варианты...")
+        encodings = ['latin-1', 'ISO-8859-1', 'cp1252', 'windows-1252']
+        
+        for encoding in encodings:
+            try:
+                print(f"Попытка загрузки с кодировкой: {encoding}")
+                df = pd.read_csv(filepath, encoding=encoding, low_memory=False)
+                print(f"Успешно загружено с кодировкой: {encoding}")
+                print(f"Загружено строк: {len(df)}")
+                return df
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                continue
+        
+        # Если все варианты не сработали, пробуем определить кодировку автоматически
+        try:
+            detected_encoding = detect_encoding(filepath)
+            print(f"Автоопределенная кодировка: {detected_encoding}")
+            df = pd.read_csv(filepath, encoding=detected_encoding, low_memory=False)
+            print(f"Загружено строк: {len(df)}")
+            return df
+        except:
+            print("Не удалось определить кодировку файла")
+            sys.exit(1)
     except Exception as e:
         print(f"Ошибка при загрузке данных: {e}")
         sys.exit(1)
@@ -22,11 +57,24 @@ def clean_data(df):
     print("\n=== Очистка данных ===")
     print(f"Исходное количество строк: {len(df)}")
     
+    # Проверим названия столбцов
+    print("Столбцы в данных:", df.columns.tolist())
+    
     # Удалить строки без популярности
-    df = df[df['popularity'].notna()]
+    if 'popularity' in df.columns:
+        df = df[df['popularity'].notna()]
+    else:
+        print("Столбец 'popularity' не найден в данных")
+        print("Доступные столбцы:", df.columns.tolist())
+        sys.exit(1)
     
     # Заполнить пустые значения в жанре
-    df['genre'] = df['genre'].fillna('Unknown')
+    if 'genre' in df.columns:
+        df['genre'] = df['genre'].fillna('Unknown')
+    else:
+        print("Столбец 'genre' не найден в данных")
+        print("Доступные столбцы:", df.columns.tolist())
+        sys.exit(1)
     
     print(f"Количество строк после очистки: {len(df)}")
     print(f"Уникальных жанров: {df['genre'].nunique()}")
@@ -78,12 +126,16 @@ def main():
     print("=== Анализ данных Spotify Tracks ===")
     print(f"Файл: {data_file}")
     
+    # Проверим размер файла
+    file_size = os.path.getsize(data_file)
+    print(f"Размер файла: {file_size / (1024*1024):.2f} MB")
+    
     # Загрузка данных
     df = load_data(data_file)
     
     # Показать базовую информацию
     print("\n=== Информация о данных ===")
-    print(df.info())
+    print(f"Размер данных: {df.shape}")
     print("\nПервые 5 строк:")
     print(df.head())
     
