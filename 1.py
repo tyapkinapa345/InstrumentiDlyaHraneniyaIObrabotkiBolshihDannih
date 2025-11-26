@@ -37,7 +37,7 @@ def analyze_popularity_by_genre(df):
     """Анализ средней популярности по жанрам"""
     print("\n=== Анализ средней популярности по жанрам ===")
     
-    # Группировка по жанру и вычисление средней популярности
+    # Группировка по жанру и вычисление статистик
     result = df.groupby('genre')['popularity'].agg(['mean', 'count', 'std', 'min', 'max']).reset_index()
     result.columns = ['Genre', 'Mean_Popularity', 'Count', 'Std', 'Min_Popularity', 'Max_Popularity']
     
@@ -46,13 +46,30 @@ def analyze_popularity_by_genre(df):
     
     return result
 
-def find_max_mean_genre(df):
+def analyze_audio_features_by_genre(df):
+    """Дополнительный анализ аудио-характеристик по жанрам"""
+    print("\n=== Анализ аудио-характеристик по жанрам ===")
+    
+    audio_features = ['danceability', 'energy', 'acousticness', 'instrumentalness', 'valence']
+    
+    results = {}
+    for feature in audio_features:
+        feature_stats = df.groupby('genre')[feature].agg(['mean', 'count']).reset_index()
+        feature_stats = feature_stats.sort_values('mean', ascending=False)
+        results[feature] = feature_stats.head(10)
+        
+        print(f"\nТоп-10 жанров по {feature}:")
+        print(feature_stats.head(10).to_string(index=False))
+    
+    return results
+
+def find_max_popularity_genre(df):
     """Найти жанр с максимальной средней популярностью"""
     result = analyze_popularity_by_genre(df)
     
-    print("\n=== Результаты ===")
-    print("\nЖанры по средней популярности (топ-10):")
-    print(result.head(10).to_string(index=False))
+    print("\n=== Результаты анализа популярности ===")
+    print("\nЖанры по средней популярности (топ-15):")
+    print(result.head(15).to_string(index=False))
     
     max_genre = result.iloc[0]
     print(f"\nЖанр с максимальной средней популярностью: '{max_genre['Genre']}'")
@@ -62,35 +79,6 @@ def find_max_mean_genre(df):
     print(f"Максимальная популярность: {max_genre['Max_Popularity']:.2f}")
     
     return result
-
-def additional_analysis(df):
-    """Дополнительный анализ музыкальных характеристик"""
-    print("\n=== Дополнительный анализ ===")
-    
-    # Анализ по длительности треков
-    duration_by_genre = df.groupby('genre')['duration_ms'].agg(['mean', 'count']).reset_index()
-    duration_by_genre.columns = ['Genre', 'Mean_Duration_ms', 'Count']
-    duration_by_genre['Mean_Duration_min'] = duration_by_genre['Mean_Duration_ms'] / 60000
-    duration_by_genre = duration_by_genre.sort_values('Mean_Duration_min', ascending=False)
-    
-    print("\nТоп-5 жанров по средней длительности треков:")
-    print(duration_by_genre.head(5)[['Genre', 'Mean_Duration_min']].to_string(index=False))
-    
-    # Анализ по энергии
-    energy_by_genre = df.groupby('genre')['energy'].mean().reset_index()
-    energy_by_genre.columns = ['Genre', 'Mean_Energy']
-    energy_by_genre = energy_by_genre.sort_values('Mean_Energy', ascending=False)
-    
-    print("\nТоп-5 жанров по средней энергии:")
-    print(energy_by_genre.head(5).to_string(index=False))
-    
-    # Анализ по танцевальности
-    danceability_by_genre = df.groupby('genre')['danceability'].mean().reset_index()
-    danceability_by_genre.columns = ['Genre', 'Mean_Danceability']
-    danceability_by_genre = danceability_by_genre.sort_values('Mean_Danceability', ascending=False)
-    
-    print("\nТоп-5 жанров по танцевальности:")
-    print(danceability_by_genre.head(5).to_string(index=False))
 
 def main():
     # Путь к файлу данных
@@ -112,26 +100,35 @@ def main():
     
     # Показать базовую информацию
     print("\n=== Информация о данных ===")
-    print(df.info())
+    print(f"Всего треков: {len(df)}")
+    print(f"Колонки: {list(df.columns)}")
+    print(f"Уникальных жанров: {df['genre'].nunique()}")
+    
     print("\nПервые 5 строк:")
     print(df.head())
     
     # Очистка данных
     df_clean = clean_data(df)
     
-    # Основной анализ популярности по жанрам
-    result = find_max_mean_genre(df_clean)
+    # Анализ популярности
+    popularity_result = find_max_popularity_genre(df_clean)
     
-    # Дополнительный анализ
-    additional_analysis(df_clean)
+    # Дополнительный анализ аудио-характеристик
+    audio_results = analyze_audio_features_by_genre(df_clean)
     
     # Сохранить результаты
-    output_file = 'results/popularity_by_genre.csv'
     os.makedirs('results', exist_ok=True)
-    result.to_csv(output_file, index=False)
-    print(f"\nРезультаты сохранены в: {output_file}")
     
-    return result
+    popularity_result.to_csv('results/popularity_by_genre.csv', index=False)
+    print(f"\nРезультаты популярности сохранены в: results/popularity_by_genre.csv")
+    
+    # Сохранить результаты по аудио-характеристикам
+    for feature, data in audio_results.items():
+        filename = f'results/top_genres_by_{feature}.csv'
+        data.to_csv(filename, index=False)
+        print(f"Результаты по {feature} сохранены в: {filename}")
+    
+    return popularity_result, audio_results
 
 if __name__ == '__main__':
     main()
