@@ -1,139 +1,155 @@
-Ниже приведена подробная структура кода по вашим блокам с учётом данных землетрясений, с загрузкой из HDFS, очисткой, анализом и визуализацией с сохранением графика в HDFS.
+#!/usr/bin/env python3
+"""
+Анализ Spotify треков для поиска жанра с максимальной средней valence (позитивностью).
+"""
 
-***
-
-### 1. Загрузка данных из HDFS и локальная проверка
-
-```python
-import pandas as pd
 import os
+import sys
 import subprocess
-
-print("Загрузка данных из HDFS...")
-
-hdfs_path = "/user/hadoop/input/database.csv"
-local_path = "/opt/database.csv"
-
-try:
-    hdfs_download_cmd = f"hdfs dfs -get {hdfs_path} {local_path}"
-    print(f"Выполнение команды: {hdfs_download_cmd}")
-
-    env = dict(os.environ, **{'JAVA_HOME': '/usr/lib/jvm/java-11-openjdk-amd64'})
-    result = subprocess.run(hdfs_download_cmd, shell=True, capture_output=True, text=True, cwd="/opt", env=env)
-
-    if result.returncode == 0:
-        print(f"Данные успешно загружены из HDFS: {hdfs_path}")
-    else:
-        print(f"Ошибка при загрузке из HDFS: {result.stderr}")
-        print("Попытка найти файл локально...")
-        local_path = "/opt/data/database.csv"
-
-    if not os.path.exists(local_path):
-        print(f"Файл не найден в {local_path}. Используем альтернативный путь...")
-        local_path = "database.csv"
-
-except Exception as e:
-    print(f"Ошибка при выполнении subprocess: {e}")
-    print("Попытка использовать локальный файл...")
-    local_path = "/opt/data/database.csv"
-
-if not os.path.exists(local_path):
-    print("Файл не найден. Пробуем последний вариант...")
-    local_path = "database.csv"
-
-if os.path.exists(local_path):
-    df = pd.read_csv(local_path, low_memory=False)
-    print(f"Размер датасета: {df.shape}")
-    print(f"Данные успешно загружены из {local_path}")
-    print(df.head())
-else:
-    print(f"ОШИБКА: Файл database.csv не найден!")
-    df = pd.DataFrame()
-```
-
-***
-
-### 2. Очистка данных
-
-```python
-df_clean = df.copy()
-df_clean = df_clean[df_clean['Magnitude'].notna()]
-df_clean['Type'] = df_clean['Type'].fillna('Unknown')
-
-print(f"Количество строк после очистки: {len(df_clean)}")
-print(f"Типы землетрясений: {df_clean['Type'].unique()}")
-```
-
-***
-
-### 3. Анализ средней магнитуды по типам
-
-```python
-magnitude_by_type = df_clean.groupby('Type')['Magnitude'].agg(['mean', 'count']).reset_index()
-magnitude_by_type.columns = ['Type', 'Mean_Magnitude', 'Count']
-magnitude_by_type = magnitude_by_type.sort_values('Mean_Magnitude', ascending=False)
-
-print("Средняя магнитуда по типам:")
-print(magnitude_by_type)
-
-max_type = magnitude_by_type.iloc[0]
-print(f"Тип с максимальной средней магнитудой: {max_type['Type']}")
-print(f"Средняя магнитуда: {max_type['Mean_Magnitude']:.2f}")
-print(f"Количество землетрясений: {int(max_type['Count'])}")
-```
-
-***
-
-### 4. Визуализация с сохранением результата в HDFS
-
-```python
-import io
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import io
 from hdfs import InsecureClient
 
-plt.style.use('seaborn-v0_8-whitegrid')
-plt.figure(figsize=(12, 7))
-ax = sns.barplot(
-    x='Mean_Magnitude',
-    y='Type',
-    data=magnitude_by_type.head(10),
-    palette='viridis_r'
-)
+# --- 1. Загрузка данных из HDFS или локальных путей ---
 
-min_val = magnitude_by_type['Mean_Magnitude'].min()
-plt.xlim(left=min_val - 0.1)
+def download_file_from_hdfs(hdfs_path: str, local_path: str, java_home: str = '/usr/lib/jvm/java-11-openjdk-amd64') -> bool:
+    """
+    Скачивает файл из HDFS по заданному пути локально.
+    Возвращает True если скачивание успешно, иначе False.
+    """
+    print(f"Попытка скачать файл из HDFS: {hdfs_path} -> {local_path}")
+    cmd = f"hdfs dfs -get {hdfs_path} {local_path}"
+    env = dict(os.environ, **{'JAVA_HOME': java_home})
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, env=env)
+    if result.returncode == 0:
+        print("Файл успешно загружен из HDFS.")
+        return True
+    else:
+        print(f"Ошибка загрузки из HDFS: {result.stderr.strip()}")
+        return False
 
-for bar in ax.patches:
-    ax.text(
-        bar.get_width() + 0.01,
-        bar.get_y() + bar.get_height() / 2,
-        f'{bar.get_width():.2f}',
-        va='center', ha='left',
-        fontsize=12, color='black'
-    )
+def load_data(possible_paths: list) -> pd.DataFrame:
+    """
+    Загружает данные из первого найденного файла из списка путей.
+    """
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"Загрузка данных из файла: {path}")
+            try:
+                df = pd.read_csv(path, low_memory=False)
+                print(f"Данные загружены, размер: {df.shape}")
+                return df
+            except Exception as e:
+                print(f"Ошибка при чтении файла {path}: {e}")
+    print("Файл не найден ни по одному из путей.")
+    sys.exit(1)
 
-plt.title('Топ-10 типов землетрясений по средней магнитуде', fontsize=16, pad=20)
-plt.xlabel('Средняя магнитуда (Mw)', fontsize=12)
-plt.ylabel('Тип землетрясения', fontsize=12)
-sns.despine(left=True, bottom=True)
-plt.tight_layout()
+# --- 2. Очистка данных ---
 
-buffer = io.BytesIO()
-plt.savefig(buffer, format='png', dpi=300)
-plt.show()
-buffer.seek(0)
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Удаляет строки с пропусками в valence и заполняет пропуски в genre.
+    """
+    print("\n=== Очистка данных ===")
+    init_count = len(df)
+    df_clean = df[df['valence'].notna()].copy()
+    df_clean['genre'] = df_clean['genre'].fillna('Unknown')
+    cleaned_count = len(df_clean)
+    unique_genres = df_clean['genre'].nunique()
+    print(f"Строк до очистки: {init_count}; после: {cleaned_count}")
+    print(f"Уникальных жанров: {unique_genres}")
+    return df_clean
 
-hdfs_path = '/user/hadoop/results/magnitude_by_type.png'
-client = InsecureClient('http://hadoop:9870', user='root')
+# --- 3. Анализ данных: средняя valence по жанрам ---
 
-client.makedirs('/user/hadoop/results')
-with client.write(hdfs_path, overwrite=True) as writer:
-    writer.write(buffer.getvalue())
+def analyze_valence_by_genre(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Возвращает DataFrame с жанрами и средней valence, отсортированный по убыванию valence.
+    """
+    print("\n=== Анализ средней valence по жанрам ===")
+    grouped = df.groupby('genre')['valence'].agg(['mean', 'count']).reset_index()
+    grouped.columns = ['Genre', 'Mean_Valence', 'Count']
+    grouped.sort_values('Mean_Valence', ascending=False, inplace=True)
+    print(grouped.head(10).to_string(index=False))
+    max_row = grouped.iloc[0]
+    print(f"\nЖанр с максимальной средней valence: '{max_row['Genre']}'")
+    print(f"Средняя valence: {max_row['Mean_Valence']:.3f}")
+    print(f"Количество треков: {int(max_row['Count'])}")
+    return grouped
 
-print(f"График успешно сохранен в HDFS по пути: {hdfs_path}")
+# --- 4. Визуализация ---
 
-# Проверка
-!hdfs dfs -ls /user/hadoop/results
-```
+def plot_top_genres(df_analysis: pd.DataFrame, top_n: int = 10) -> plt.Figure:
+    """
+    Строит горизонтальный barplot топ N жанров по средней valence.
+    """
+    sns.set_style('whitegrid')
+    top_df = df_analysis.head(top_n)
+    
+    fig, ax = plt.subplots(figsize=(12, 7))
+    sns.barplot(x='Mean_Valence', y='Genre', data=top_df, palette='viridis_r', ax=ax)
+    
+    for bar in ax.patches:
+        width = bar.get_width()
+        ax.text(width + 0.01, bar.get_y() + bar.get_height() / 2, f'{width:.3f}', va='center', ha='left', fontsize=12)
 
+    ax.set_title('Топ-10 жанров по средней valence (позитивности)', fontsize=16, pad=20)
+    ax.set_xlabel('Средняя valence')
+    ax.set_ylabel('Жанр')
+    
+    plt.tight_layout()
+    plt.show()
+    return fig
+
+# --- 5. Сохранение графика в HDFS ---
+
+def save_figure_to_hdfs(fig: plt.Figure, hdfs_path: str, hdfs_url: str = 'http://hadoop:9870', user: str = 'root'):
+    """
+    Сохраняет matplotlib figure в PNG формате в HDFS.
+    """
+    print(f"\nСохранение графика в HDFS: {hdfs_path}")
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format='png', dpi=300)
+    buffer.seek(0)
+
+    client = InsecureClient(hdfs_url, user=user)
+    client.makedirs(os.path.dirname(hdfs_path), exist_ok=True)
+    
+    with client.write(hdfs_path, overwrite=True) as writer:
+        writer.write(buffer.getvalue())
+
+    print("График успешно сохранён в HDFS.")
+
+# --- Главная функция ---
+
+def main():
+    hdfs_file = "/user/hadoop/input/database.csv"
+    local_file_paths = ["/opt/database.csv", "/opt/data/database.csv", "database.csv"]
+
+    # Пытаемся скачать из HDFS
+    downloaded = download_file_from_hdfs(hdfs_file, local_file_paths[0])
+
+    # Загружаем из доступного локального файла
+    df = load_data(local_file_paths)
+
+    # Очистка
+    df_clean = clean_data(df)
+
+    # Анализ
+    df_analysis = analyze_valence_by_genre(df_clean)
+
+    # Визуализация
+    fig = plot_top_genres(df_analysis, top_n=10)
+
+    # Сохранение в HDFS
+    output_hdfs_path = '/user/hadoop/results/valence_by_genre.png'
+    save_figure_to_hdfs(fig, output_hdfs_path)
+
+    # Проверка содержимого результатов в HDFS
+    print("\nСодержимое /user/hadoop/results в HDFS:")
+    subprocess.run("hdfs dfs -ls /user/hadoop/results", shell=True)
+
+if __name__ == '__main__':
+    main()
