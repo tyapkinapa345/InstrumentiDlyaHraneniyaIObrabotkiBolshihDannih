@@ -16,14 +16,22 @@ sns.set_palette("husl")
 # Увеличение размера графиков
 plt.rcParams['figure.figsize'] = (12, 8)
 
-print("Загрузка данных из HDFS...")
+import pandas as pd
+import os
+import subprocess
 
-# Пути
+print("Загрузка данных из HDFS ...")
+
 hdfs_path = "/user/hadoop/input2/database.csv"
 local_path = "/opt/database.csv"
 
+print(os.listdir("/opt"))
+
 try:
-    # Скачиваем файл из HDFS
+    # Удаляем локальный файл, если он существует (чтобы избежать ошибки "File exists")
+    if os.path.exists(local_path):
+        os.remove(local_path)
+
     hdfs_download_cmd = f"hdfs dfs -get {hdfs_path} {local_path}"
     print(f"Выполнение команды: {hdfs_download_cmd}")
 
@@ -34,34 +42,35 @@ try:
         print(f"Данные успешно загружены из HDFS: {hdfs_path}")
     else:
         print(f"Ошибка при загрузке из HDFS: {result.stderr}")
-        print("Попытка найти файл локально...")
+        print("Попытка найти файл локально ...")
         local_path = "/opt/data/database.csv"
 
     if not os.path.exists(local_path):
-        print(f"Файл не найден в {local_path}. Используем альтернативный путь...")
+        print(f"Файл не найден в {local_path}. Используем альтернативный путь ...")
         local_path = "database.csv"
 
 except Exception as e:
     print(f"Ошибка при выполнении subprocess: {e}")
-    print("Попытка использовать локальный файл...")
+    print("Попытка использовать локальный файл ...")
     local_path = "/opt/data/database.csv"
 
 if not os.path.exists(local_path):
-    print("Файл не найден. Пробуем последний вариант...")
+    print("Файл не найден. Пробуем последний вариант ...")
     local_path = "database.csv"
 
 if os.path.exists(local_path):
-    df = pd.read_csv(local_path, low_memory=False)
+    df = pd.read_csv(local_path, encoding='utf-8-sig', sep=',', quotechar='"', engine='python', on_bad_lines='skip')
     print(f"Размер датасета: {df.shape}")
     print(f"Данные успешно загружены из {local_path}")
     print(df.head())
 else:
-    print(f"ОШИБКА: Файл database.csv не найден!")
-    print(f"Искали по следующим путям:")
-    print(f"  - /opt/database.csv (из HDFS)")
-    print(f"  - /opt/data/database.csv (локальный)")
-    print(f"  - database.csv (текущая директория)")
+    print("ОШИБКА: Файл database.csv не найден!")
+    print("Искали по следующим путям:")
+    print(" - /opt/database.csv (из HDFS)")
+    print(" - /opt/data/database.csv (локальный)")
+    print(" - database.csv (в текущей директории)")
     df = pd.DataFrame()
+
 
 # Начинаем очистку данных под Spotify датасет
 
