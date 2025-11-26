@@ -19,7 +19,7 @@ plt.rcParams['figure.figsize'] = (12, 8)
 print("Загрузка данных из HDFS...")
 
 # Пути
-hdfs_path = "/user/hadoop/input/database.csv"
+hdfs_path = "/user/hadoop/input2/database.csv"
 local_path = "/opt/database.csv"
 
 try:
