@@ -13,15 +13,13 @@ def load_data(filepath):
                          encoding='utf-8',
                          sep=',',
                          quotechar='"',
-                         engine='python',
-                         on_bad_lines='skip',
-                         low_memory=False)
+                         engine='python',  # Используем python engine для гибкости разбора
+                         on_bad_lines='skip')  # Пропуск строк с ошибками
         print(f"Загружено строк: {len(df)}")
         return df
     except Exception as e:
         print(f"Ошибка при загрузке данных: {e}")
         sys.exit(1)
-
 
 def clean_data(df):
     """Очистка и подготовка данных"""
