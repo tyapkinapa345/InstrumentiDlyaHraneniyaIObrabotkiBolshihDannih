@@ -10,7 +10,7 @@ import os
 def load_data(filepath):
     """Загрузить данные из CSV файла с указанием кодировки utf-8"""
     try:
-        df = pd.read_csv(filepath, encoding='utf-8', low_memory=False)
+        df = pd.read_csv(data_file, encoding='utf-8', sep=',', quotechar='"', engine='python', on_bad_lines='skip')  # пропуск строк с ошибками
         print(f"Загружено строк: {len(df)}")
         return df
     except Exception as e:
