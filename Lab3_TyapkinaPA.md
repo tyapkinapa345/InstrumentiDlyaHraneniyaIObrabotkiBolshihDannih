@@ -1,11 +1,3 @@
-<think>
-Сначала пользователь просит "перепиши отчёт под новый код". Это значит, что нужно переписать отчет на основе нового кода, который он предоставил. Новый код — это Python-скрипт для лабораторной работы по сравнению PostgreSQL и MongoDB для IoT данных.
-
-
-## Interpreting user request  
-- The user asked to "rewrite the report under the new code," indicating a need to update a report based on recently provided code.
-</think># Лабораторная работа 4.1. Сравнение подходов хранения больших данных
-
 **Вариант 16:** 
 Задание для PostgreSQL: Интернет вещей (IoT). Создать таблицу sensor_data (sensor _id, temperature, timestamp). Найти максимальную температуру для каждого сенсора за все время. 
 Задание для MongoDB: Интернет вещей (IoT). Создать коллекцию sensor_data. Написать агрегационный запрос для поиска максимальной температуры для каждого сенсора. 
