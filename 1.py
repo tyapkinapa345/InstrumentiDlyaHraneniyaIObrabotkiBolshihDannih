@@ -12,15 +12,17 @@ import zipfile
 def load_data_from_zip(zip_filepath, csv_inside_zip):
     try:
         with zipfile.ZipFile(zip_filepath) as z:
-            print("Содержимое ZIP архива:", z.namelist())
             with z.open(csv_inside_zip) as f:
                 df = pd.read_csv(f,
-                                 encoding='latin1',  # замените при необходимости
+                                 encoding='utf-8-sig',  # Убираем BOM
                                  sep=',',
                                  quotechar='"',
                                  engine='python',
                                  on_bad_lines='skip')
+        # Очистка заголовков от пробелов и спецсимволов
+        df.columns = df.columns.str.strip().str.replace('\ufeff', '')
         print(f"Загружено строк: {len(df)}")
+        print(f"Колонки: {list(df.columns)}")
         return df
     except Exception as e:
         print(f"Ошибка при загрузке данных из ZIP архива: {e}")
