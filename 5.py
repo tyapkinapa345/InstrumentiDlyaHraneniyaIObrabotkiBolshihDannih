@@ -1,208 +1,325 @@
 #!/usr/bin/env python3
 """
-Анализ данных Spotify Tracks с использованием MapReduce подхода в Pandas
-Задача: вычислить средние показатели "энергичность" и "танцевальность" по жанрам
+Анализ данных Spotify Tracks DB
+Задача: средние показатели "энергичность" и "танцевальность" по жанру
 """
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 import sys
 import os
-from functools import reduce
+import csv
+
+def explore_file_structure(filepath):
+    """Исследовать структуру файла"""
+    print(f"\n=== Исследование структуры файла {filepath} ===")
+    
+    try:
+        with open(filepath, 'r', encoding='latin-1') as f:
+            lines = []
+            for i, line in enumerate(f):
+                lines.append(line)
+                if i >= 10:
+                    break
+            
+        print("Первые 10 строк файла:")
+        for i, line in enumerate(lines):
+            print(f"{i+1}: {line[:200]}...")  # Показываем только первые 200 символов
+            
+    except Exception as e:
+        print(f"Ошибка при исследовании файла: {e}")
 
 def load_data(filepath):
-    """Загрузить данные из CSV файла (Mapper-подход)"""
-    print("=== MAP: Загрузка данных ===")
+    """Загрузить данные из CSV файла"""
+    # Исследуем файл
+    explore_file_structure(filepath)
+    
     try:
-        # Загружаем данные с обработкой ошибок
-        df = pd.read_csv(
-            filepath,
-            encoding='utf-8',
-            on_bad_lines='skip',
-            low_memory=False
-        )
-        print(f"✅ Загружено строк: {len(df):,}")
-        return df
+        # Пробуем загрузить с разными разделителями
+        for sep in [',', ';', '\t', '|']:
+            try:
+                print(f"\nПопытка загрузки с разделителем '{sep}'...")
+                df = pd.read_csv(filepath, sep=sep, encoding='latin-1', low_memory=False, on_bad_lines='skip')
+                print(f"Успешно! Строк: {len(df)}, Колонок: {len(df.columns)}")
+                return df
+            except Exception as e:
+                print(f"Не удалось с разделителем '{sep}': {e}")
+                continue
     except Exception as e:
-        print(f"❌ Ошибка при загрузке данных: {e}")
+        print(f"Ошибка при загрузке: {e}")
         sys.exit(1)
+    
+    # Если все попытки не удались
+    print("Не удалось загрузить файл")
+    sys.exit(1)
 
-def clean_and_filter_data(df):
-    """Очистка и фильтрация данных (Mapper-подход)"""
-    print("\n=== MAP: Очистка и фильтрация данных ===")
-    print(f"Исходное количество строк: {len(df):,}")
+def clean_data(df):
+    """Очистка и подготовка данных"""
+    print("\n=== Очистка данных ===")
+    print(f"Исходное количество строк: {len(df)}")
+    print(f"Исходное количество колонок: {len(df.columns)}")
+    print(f"Колонки: {df.columns.tolist()}")
     
-    # Проверяем наличие необходимых столбцов
-    required_columns = ['genre', 'energy', 'danceability']
-    missing_columns = [col for col in required_columns if col not in df.columns]
+    # Находим нужные колонки
+    energy_col = None
+    dance_col = None
+    genre_col = None
     
-    if missing_columns:
-        print(f"❌ Отсутствуют необходимые столбцы: {missing_columns}")
-        print("Доступные столбцы:", df.columns.tolist())
-        return None
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if 'energy' in col_lower:
+            energy_col = col
+        elif 'dance' in col_lower:
+            dance_col = col
+        elif 'genre' in col_lower or 'style' in col_lower or 'type' in col_lower:
+            genre_col = col
     
-    # Удаляем строки с отсутствующими значениями в нужных столбцах
+    print(f"\nНайдены колонки:")
+    print(f"  Энергичность: {energy_col}")
+    print(f"  Танцевальность: {dance_col}")
+    print(f"  Жанр: {genre_col}")
+    
+    # Если колонки не найдены по названию, ищем по содержимому
+    if not energy_col:
+        for col in df.columns:
+            try:
+                sample = pd.to_numeric(df[col].head(100), errors='coerce').dropna()
+                if len(sample) > 0 and sample.between(0, 1).all():
+                    energy_col = col
+                    print(f"  Найдена потенциальная колонка энергичности по значениям: {col}")
+                    break
+            except:
+                continue
+    
+    if not dance_col:
+        for col in df.columns:
+            if col == energy_col:
+                continue
+            try:
+                sample = pd.to_numeric(df[col].head(100), errors='coerce').dropna()
+                if len(sample) > 0 and sample.between(0, 1).all():
+                    dance_col = col
+                    print(f"  Найдена потенциальная колонка танцевальности по значениям: {col}")
+                    break
+            except:
+                continue
+    
+    if not genre_col:
+        for col in df.columns:
+            if col in [energy_col, dance_col]:
+                continue
+            try:
+                unique_values = df[col].astype(str).unique()
+                if len(unique_values) < 100:  # Если уникальных значений не слишком много
+                    genre_col = col
+                    print(f"  Найдена потенциальная колонка жанра: {col}")
+                    break
+            except:
+                continue
+    
+    # Переименовываем колонки
+    if energy_col:
+        df = df.rename(columns={energy_col: 'energy'})
+        df['energy'] = pd.to_numeric(df['energy'], errors='coerce')
+    else:
+        print("Внимание: колонка энергичности не найдена!")
+        df['energy'] = np.nan
+    
+    if dance_col:
+        df = df.rename(columns={dance_col: 'danceability'})
+        df['danceability'] = pd.to_numeric(df['danceability'], errors='coerce')
+    else:
+        print("Внимание: колонка танцевальности не найдена!")
+        df['danceability'] = np.nan
+    
+    if genre_col:
+        df = df.rename(columns={genre_col: 'genre'})
+        df['genre'] = df['genre'].fillna('Unknown').astype(str)
+    else:
+        print("Внимание: колонка жанра не найдена!")
+        df['genre'] = 'Unknown'
+    
+    # Удаляем строки с NaN в нужных колонках
     initial_count = len(df)
-    df = df[required_columns].dropna()
-    removed_count = initial_count - len(df)
+    df = df.dropna(subset=['energy', 'danceability'])
+    df = df[df['genre'] != 'Unknown']
     
-    if removed_count > 0:
-        print(f"Удалено строк с пропущенными значениями: {removed_count}")
-    
-    # Преобразуем числовые столбцы
-    df['energy'] = pd.to_numeric(df['energy'], errors='coerce')
-    df['danceability'] = pd.to_numeric(df['danceability'], errors='coerce')
-    
-    # Удаляем некорректные значения (вне диапазона 0-1)
-    df = df[(df['energy'] >= 0) & (df['energy'] <= 1)]
-    df = df[(df['danceability'] >= 0) & (df['danceability'] <= 1)]
-    
-    print(f"✅ Количество строк после очистки: {len(df):,}")
-    print(f"✅ Уникальных жанров: {df['genre'].nunique()}")
+    print(f"\nПосле очистки:")
+    print(f"  Удалено строк: {initial_count - len(df)}")
+    print(f"  Осталось строк: {len(df)}")
+    print(f"  Уникальных жанров: {df['genre'].nunique()}")
     
     return df
 
-def map_to_key_value_pairs(df):
-    """Преобразование данных в пары ключ-значение (Mapper)"""
-    print("\n=== MAP: Преобразование в пары ключ-значение ===")
+def analyze_genre_stats(df):
+    """Анализ средних показателей по жанрам"""
+    print("\n=== Анализ средних показателей по жанрам ===")
     
-    # Создаем список пар (жанр, (энергичность, танцевальность, счетчик))
-    mapped_data = []
+    # Группируем по жанру и вычисляем статистики
+    stats = df.groupby('genre').agg({
+        'energy': ['mean', 'std', 'count'],
+        'danceability': ['mean', 'std', 'count']
+    }).round(4)
     
-    for _, row in df.iterrows():
-        key = row['genre']
-        value = {
-            'energy_sum': row['energy'],
-            'danceability_sum': row['danceability'],
-            'count': 1
-        }
-        mapped_data.append((key, value))
+    # Упрощаем названия колонок
+    stats.columns = ['energy_mean', 'energy_std', 'energy_count', 
+                     'dance_mean', 'dance_std', 'dance_count']
+    stats = stats.reset_index()
     
-    print(f"Создано {len(mapped_data)} пар ключ-значение")
-    return mapped_data
+    # Добавляем общее количество треков в жанре
+    stats['total_tracks'] = stats[['energy_count', 'dance_count']].max(axis=1)
+    
+    # Сортируем по среднему energy (по убыванию)
+    stats_by_energy = stats.sort_values('energy_mean', ascending=False)
+    
+    # Сортируем по среднему danceability (по убыванию)
+    stats_by_dance = stats.sort_values('dance_mean', ascending=False)
+    
+    print("\nТоп-10 жанров по энергичности:")
+    print(stats_by_energy[['genre', 'energy_mean', 'dance_mean', 'total_tracks']].head(10).to_string(index=False))
+    
+    print("\nТоп-10 жанров по танцевальности:")
+    print(stats_by_dance[['genre', 'dance_mean', 'energy_mean', 'total_tracks']].head(10).to_string(index=False))
+    
+    # Основная статистика
+    print(f"\nОбщая статистика:")
+    print(f"  Средняя энергичность по всем трекам: {df['energy'].mean():.4f}")
+    print(f"  Средняя танцевальность по всем трекам: {df['danceability'].mean():.4f}")
+    print(f"  Всего жанров: {len(stats)}")
+    print(f"  Всего треков: {len(df)}")
+    
+    return stats, stats_by_energy, stats_by_dance
 
-def shuffle_and_sort(mapped_data):
-    """Группировка данных по ключу (Shuffle & Sort)"""
-    print("\n=== SHUFFLE & SORT: Группировка данных по жанрам ===")
+def create_visualizations(stats_by_energy, stats_by_dance):
+    """Создание визуализаций"""
+    print("\n=== Создание визуализаций ===")
     
-    # Создаем словарь для группировки
-    shuffled_data = {}
+    # Настройка стиля графиков
+    plt.style.use('seaborn-v0_8-darkgrid')
+    sns.set_palette("husl")
     
-    for key, value in mapped_data:
-        if key not in shuffled_data:
-            shuffled_data[key] = []
-        shuffled_data[key].append(value)
+    # Создаем директорию для графиков
+    os.makedirs('results/plots', exist_ok=True)
     
-    print(f"Группировано по {len(shuffled_data)} уникальным жанрам")
-    return shuffled_data
-
-def reduce_per_genre(shuffled_data):
-    """Агрегация данных по жанрам (Reducer)"""
-    print("\n=== REDUCE: Агрегация данных по жанрам ===")
+    # Ограничиваем количество жанров для отображения (для читаемости)
+    top_n = 15
     
-    reduced_results = []
+    # 1. Топ жанров по энергичности
+    plt.figure(figsize=(14, 8))
     
-    for genre, values_list in shuffled_data.items():
-        # Инициализируем агрегаторы
-        total_energy = 0.0
-        total_danceability = 0.0
-        total_count = 0
-        
-        # Суммируем все значения для данного жанра
-        for value in values_list:
-            total_energy += value['energy_sum']
-            total_danceability += value['danceability_sum']
-            total_count += value['count']
-        
-        # Вычисляем средние значения
-        avg_energy = total_energy / total_count if total_count > 0 else 0
-        avg_danceability = total_danceability / total_count if total_count > 0 else 0
-        
-        reduced_results.append({
-            'genre': genre,
-            'avg_energy': avg_energy,
-            'avg_danceability': avg_danceability,
-            'track_count': total_count,
-            'total_energy': total_energy,
-            'total_danceability': total_danceability
-        })
+    top_energy = stats_by_energy.head(top_n)
+    bars = plt.barh(range(len(top_energy)), top_energy['energy_mean'], 
+                    color='lightcoral', edgecolor='darkred', linewidth=1.5)
     
-    print(f"Агрегировано данных для {len(reduced_results)} жанров")
-    return reduced_results
-
-def pandas_mapreduce_approach(df):
-    """Альтернативный подход: использование встроенных функций Pandas (оптимизированный)"""
-    print("\n=== PANDAS MAPREDUCE: Оптимизированный расчет ===")
+    plt.yticks(range(len(top_energy)), top_energy['genre'])
+    plt.xlabel('Средняя энергичность (0-1)', fontsize=12)
+    plt.title(f'Топ-{top_n} жанров по средней энергичности', fontsize=14, fontweight='bold')
+    plt.grid(axis='x', alpha=0.3)
     
-    # MAP: Группировка по жанру
-    grouped = df.groupby('genre')
+    # Добавляем значения на столбцы
+    for i, (bar, val) in enumerate(zip(bars, top_energy['energy_mean'])):
+        plt.text(val + 0.005, bar.get_y() + bar.get_height()/2, 
+                f'{val:.3f}', va='center', fontsize=9)
     
-    # REDUCE: Вычисление агрегированных значений
-    result = grouped.agg({
-        'energy': ['mean', 'sum', 'count'],
-        'danceability': ['mean', 'sum', 'count']
-    }).reset_index()
+    plt.tight_layout()
+    plt.savefig('results/plots/top_energy_genres.png', dpi=150, bbox_inches='tight')
     
-    # Упрощаем структуру DataFrame
-    result.columns = [
-        'genre',
-        'avg_energy', 'total_energy', 'energy_count',
-        'avg_danceability', 'total_danceability', 'danceability_count'
-    ]
+    # 2. Топ жанров по танцевальности
+    plt.figure(figsize=(14, 8))
     
-    # Проверяем согласованность счетчиков
-    result['track_count'] = result[['energy_count', 'danceability_count']].min(axis=1)
-    result = result.drop(['energy_count', 'danceability_count'], axis=1)
+    top_dance = stats_by_dance.head(top_n)
+    bars = plt.barh(range(len(top_dance)), top_dance['dance_mean'], 
+                    color='lightblue', edgecolor='darkblue', linewidth=1.5)
     
-    # Сортировка по среднему значению энергичности
-    result = result.sort_values('avg_energy', ascending=False)
+    plt.yticks(range(len(top_dance)), top_dance['genre'])
+    plt.xlabel('Средняя танцевальность (0-1)', fontsize=12)
+    plt.title(f'Топ-{top_n} жанров по средней танцевальности', fontsize=14, fontweight='bold')
+    plt.grid(axis='x', alpha=0.3)
     
-    return result
-
-def analyze_results(reduced_data, approach_name="MapReduce"):
-    """Анализ и вывод результатов"""
-    print(f"\n=== РЕЗУЛЬТАТЫ ({approach_name}) ===")
+    # Добавляем значения на столбцы
+    for i, (bar, val) in enumerate(zip(bars, top_dance['dance_mean'])):
+        plt.text(val + 0.005, bar.get_y() + bar.get_height()/2, 
+                f'{val:.3f}', va='center', fontsize=9)
     
-    # Преобразуем в DataFrame для удобства
-    if isinstance(reduced_data, list):
-        result_df = pd.DataFrame(reduced_data)
-    else:
-        result_df = reduced_data
+    plt.tight_layout()
+    plt.savefig('results/plots/top_danceability_genres.png', dpi=150, bbox_inches='tight')
     
-    # Сортировка по среднему значению энергичности
-    result_df = result_df.sort_values('avg_energy', ascending=False)
+    # 3. Сравнение топ-10 жанров по обоим показателям
+    plt.figure(figsize=(16, 10))
     
-    print(f"\nТоп-10 жанров по средней энергичности:")
-    print(result_df[['genre', 'avg_energy', 'avg_danceability', 'track_count']]
-          .head(10).round(3).to_string(index=False))
+    # Берем топ-10 по энергичности
+    compare_genres = stats_by_energy.head(10)['genre'].tolist()
+    compare_data = stats_by_energy[stats_by_energy['genre'].isin(compare_genres)]
     
-    print(f"\nТоп-10 жанров по средней танцевальности:")
-    danceability_sorted = result_df.sort_values('avg_danceability', ascending=False)
-    print(danceability_sorted[['genre', 'avg_danceability', 'avg_energy', 'track_count']]
-          .head(10).round(3).to_string(index=False))
+    x = np.arange(len(compare_genres))
+    width = 0.35
     
-    # Находим жанры с максимальными значениями
-    max_energy = result_df.loc[result_df['avg_energy'].idxmax()]
-    max_danceability = result_df.loc[result_df['avg_danceability'].idxmax()]
+    fig, ax = plt.subplots(figsize=(14, 8))
+    bars1 = ax.bar(x - width/2, compare_data['energy_mean'], width, 
+                  label='Энергичность', color='lightcoral', edgecolor='darkred')
+    bars2 = ax.bar(x + width/2, compare_data['dance_mean'], width, 
+                  label='Танцевальность', color='lightblue', edgecolor='darkblue')
     
-    print(f"\n🎵 ЖАНР С МАКСИМАЛЬНОЙ ЭНЕРГИЧНОСТЬЮ:")
-    print(f"   Жанр: '{max_energy['genre']}'")
-    print(f"   Средняя энергичность: {max_energy['avg_energy']:.3f}")
-    print(f"   Средняя танцевальность: {max_energy['avg_danceability']:.3f}")
-    print(f"   Количество треков: {int(max_energy['track_count']):,}")
+    ax.set_xlabel('Жанры', fontsize=12)
+    ax.set_ylabel('Среднее значение (0-1)', fontsize=12)
+    ax.set_title('Сравнение средних показателей энергичности и танцевальности по жанрам', 
+                fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(compare_genres, rotation=45, ha='right')
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
     
-    print(f"\n💃 ЖАНР С МАКСИМАЛЬНОЙ ТАНЦЕВАЛЬНОСТЬЮ:")
-    print(f"   Жанр: '{max_danceability['genre']}'")
-    print(f"   Средняя танцевальность: {max_danceability['avg_danceability']:.3f}")
-    print(f"   Средняя энергичность: {max_danceability['avg_energy']:.3f}")
-    print(f"   Количество треков: {int(max_danceability['track_count']):,}")
+    # Добавляем значения
+    def autolabel(bars):
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(f'{height:.3f}',
+                       xy=(bar.get_x() + bar.get_width() / 2, height),
+                       xytext=(0, 3),
+                       textcoords="offset points",
+                       ha='center', va='bottom', fontsize=8)
     
-    # Корреляция между энергичностью и танцевальностью
-    correlation = result_df['avg_energy'].corr(result_df['avg_danceability'])
-    print(f"\n📊 КОРРЕЛЯЦИЯ МЕЖДУ ПОКАЗАТЕЛЯМИ:")
-    print(f"   Корреляция энергичность-танцевальность: {correlation:.3f}")
+    autolabel(bars1)
+    autolabel(bars2)
     
-    return result_df
+    plt.tight_layout()
+    plt.savefig('results/plots/energy_vs_danceability.png', dpi=150, bbox_inches='tight')
+    
+    # 4. Heatmap: корреляция между показателями для топ жанров
+    plt.figure(figsize=(10, 8))
+    
+    # Берем топ-15 жанров по количеству треков
+    top_genres_by_count = stats_by_energy.nlargest(15, 'total_tracks')
+    
+    # Создаем матрицу для heatmap
+    heatmap_data = top_genres_by_count[['energy_mean', 'dance_mean']].values
+    
+    plt.imshow(heatmap_data, aspect='auto', cmap='YlOrRd')
+    plt.colorbar(label='Среднее значение')
+    plt.xlabel('Показатели')
+    plt.ylabel('Жанры')
+    plt.title('Heatmap: Энергичность и танцевальность по жанрам', fontsize=14, fontweight='bold')
+    plt.xticks([0, 1], ['Энергичность', 'Танцевальность'])
+    plt.yticks(range(len(top_genres_by_count)), top_genres_by_count['genre'])
+    
+    # Добавляем значения в ячейки
+    for i in range(len(top_genres_by_count)):
+        for j in range(2):
+            plt.text(j, i, f'{heatmap_data[i, j]:.3f}', 
+                    ha='center', va='center', color='black' if heatmap_data[i, j] < 0.7 else 'white')
+    
+    plt.tight_layout()
+    plt.savefig('results/plots/genre_heatmap.png', dpi=150, bbox_inches='tight')
+    
+    print("Визуализации сохранены в папке 'results/plots/'")
+    print("  1. top_energy_genres.png - Топ жанров по энергичности")
+    print("  2. top_danceability_genres.png - Топ жанров по танцевальности")
+    print("  3. energy_vs_danceability.png - Сравнение показателей")
+    print("  4. genre_heatmap.png - Heatmap значений")
 
 def main():
+    """Основная функция"""
     # Путь к файлу данных
     data_file = '/opt/data/database.csv'
     
@@ -210,94 +327,56 @@ def main():
         data_file = 'database.csv'
     
     if not os.path.exists(data_file):
-        print(f"❌ Файл не найден: {data_file}")
+        print(f"Файл не найден: {data_file}")
+        # Попробуем найти файл
+        for root, dirs, files in os.walk('/opt'):
+            for file in files:
+                if 'database' in file.lower() and file.endswith('.csv'):
+                    data_file = os.path.join(root, file)
+                    print(f"Найден файл: {data_file}")
+                    break
+    
+    if not os.path.exists(data_file):
+        print("Файл не найден")
         sys.exit(1)
     
-    file_size = os.path.getsize(data_file) / (1024*1024)
-    print("=" * 60)
-    print("Анализ Spotify Tracks: Энергичность и Танцевальность по жанрам")
-    print("=" * 60)
-    print(f"📁 Файл: {data_file}")
-    print(f"📊 Размер: {file_size:.1f} MB")
+    print("=== Анализ Spotify Tracks DB ===")
+    print(f"Файл: {data_file}")
+    print("Задача: средние показатели 'энергичность' и 'танцевальность' по жанру")
     
-    # 1. Загрузка данных
+    # Загрузка данных
     df = load_data(data_file)
     
-    # 2. Очистка данных
-    df_clean = clean_and_filter_data(df)
-    if df_clean is None:
-        print("❌ Не удалось подготовить данные для анализа")
-        sys.exit(1)
+    # Очистка данных
+    df_clean = clean_data(df)
     
-    # 3. Подход 1: Классический MapReduce
-    print("\n" + "=" * 60)
-    print("ПОДХОД 1: КЛАССИЧЕСКИЙ MAPREDUCE")
-    print("=" * 60)
+    # Анализ статистик
+    stats, stats_by_energy, stats_by_dance = analyze_genre_stats(df_clean)
     
-    # MAP
-    mapped_data = map_to_key_value_pairs(df_clean)
+    # Создание визуализаций
+    create_visualizations(stats_by_energy, stats_by_dance)
     
-    # SHUFFLE & SORT
-    shuffled_data = shuffle_and_sort(mapped_data)
+    # Сохранение результатов
+    os.makedirs('results', exist_ok=True)
     
-    # REDUCE
-    reduced_data = reduce_per_genre(shuffled_data)
+    # Сохраняем все статистики
+    stats.to_csv('results/genre_statistics.csv', index=False, encoding='utf-8')
+    stats_by_energy.to_csv('results/genres_by_energy.csv', index=False, encoding='utf-8')
+    stats_by_dance.to_csv('results/genres_by_danceability.csv', index=False, encoding='utf-8')
     
-    # Анализ результатов
-    result_classic = analyze_results(reduced_data, "Классический MapReduce")
+    # Сохраняем сырые данные для топ-20 жанров
+    top_genres = stats_by_energy.head(20)['genre'].tolist()
+    top_data = df_clean[df_clean['genre'].isin(top_genres)]
+    top_data.to_csv('results/top_genres_data.csv', index=False, encoding='utf-8')
     
-    # 4. Подход 2: Оптимизированный Pandas MapReduce
-    print("\n" + "=" * 60)
-    print("ПОДХОД 2: ОПТИМИЗИРОВАННЫЙ PANDAS MAPREDUCE")
-    print("=" * 60)
+    print(f"\n=== Результаты сохранены ===")
+    print("  results/genre_statistics.csv - полная статистика по жанрам")
+    print("  results/genres_by_energy.csv - жанры, отсортированные по энергичности")
+    print("  results/genres_by_danceability.csv - жанры, отсортированные по танцевальности")
+    print("  results/top_genres_data.csv - исходные данные для топ-20 жанров")
+    print("  results/plots/ - папка с визуализациями")
     
-    result_pandas = pandas_mapreduce_approach(df_clean)
-    result_pandas = analyze_results(result_pandas, "Pandas MapReduce")
-    
-    # 5. Сохранение результатов
-    output_dir = 'results'
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Сохраняем оба набора результатов
-    classic_output = os.path.join(output_dir, 'energy_danceability_classic_mapreduce.csv')
-    pandas_output = os.path.join(output_dir, 'energy_danceability_pandas_mapreduce.csv')
-    
-    pd.DataFrame(result_classic).to_csv(classic_output, index=False, encoding='utf-8')
-    result_pandas.to_csv(pandas_output, index=False, encoding='utf-8')
-    
-    print(f"\n💾 Результаты сохранены:")
-    print(f"   {classic_output}")
-    print(f"   {pandas_output}")
-    
-    # 6. Сравнение подходов
-    print("\n" + "=" * 60)
-    print("СРАВНЕНИЕ ПОДХОДОВ")
-    print("=" * 60)
-    
-    # Проверяем согласованность результатов
-    if isinstance(result_classic, list):
-        classic_df = pd.DataFrame(result_classic)
-    else:
-        classic_df = result_classic
-    
-    # Сравниваем средние значения
-    classic_sorted = classic_df.sort_values('genre').reset_index(drop=True)
-    pandas_sorted = result_pandas.sort_values('genre').reset_index(drop=True)
-    
-    # Проверяем совпадение для первых 5 жанров
-    print("Сравнение средних значений для топ-5 жанров:")
-    for i in range(min(5, len(classic_sorted), len(pandas_sorted))):
-        genre = classic_sorted.loc[i, 'genre']
-        classic_energy = classic_sorted.loc[i, 'avg_energy']
-        pandas_energy = pandas_sorted.loc[i, 'avg_energy']
-        
-        diff = abs(classic_energy - pandas_energy)
-        match = "✅" if diff < 0.001 else "⚠️"
-        
-        print(f"{match} {genre}:")
-        print(f"  Классический: {classic_energy:.4f}, Pandas: {pandas_energy:.4f}")
-    
-    return result_pandas
+    return stats
 
 if __name__ == '__main__':
     main()
