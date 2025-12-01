@@ -4,46 +4,53 @@
 
 ```python
 import io
-import os
-import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
 from hdfs import InsecureClient
 
-# 1. Подготовка данных
+# 1. Подготовка данных (очистка)
 df_clean['energy'] = pd.to_numeric(df_clean['energy'].astype(str).str.replace(';', ''), errors='coerce')
 df_clean['danceability'] = pd.to_numeric(df_clean['danceability'].astype(str).str.replace(';', ''), errors='coerce')
 
-# Группировка по жанру
-energy_by_genre = df_clean.groupby('genre')['energy'].agg(['mean', 'count']).reset_index()
-energy_by_genre.columns = ['Genre', 'Mean_Energy', 'Count']
-energy_by_genre = energy_by_genre.sort_values('Mean_Energy', ascending=False)
+# Группировка
+energy_by_genre = df_clean.groupby('genre')['energy'].mean().reset_index()
+energy_by_genre.columns = ['Genre', 'Mean_Energy']
+energy_by_genre = energy_by_genre.sort_values('Mean_Energy', ascending=False).head(10)
 
-dance_by_genre = df_clean.groupby('genre')['danceability'].agg(['mean', 'count']).reset_index()
-dance_by_genre.columns = ['Genre', 'Mean_Danceability', 'Count']
-dance_by_genre = dance_by_genre.sort_values('Mean_Danceability', ascending=False)
+dance_by_genre = df_clean.groupby('genre')['danceability'].mean().reset_index()
+dance_by_genre.columns = ['Genre', 'Mean_Danceability']
+dance_by_genre = dance_by_genre.sort_values('Mean_Danceability', ascending=False).head(10)
 
-# 2. Создание двух графиков
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
+# 2. Создание графиков seaborn
+fig, (ax1, ax2) = sns.plots.subplots(1, 2, figsize=(20, 8))
 
-# График энергичности
-sns.barplot(x='Mean_Energy', y='Genre', data=energy_by_genre.head(10), 
-            palette='plasma', ax=ax1)
-ax1.set_title('Топ-10 жанров по средней энергичности', fontsize=14, pad=10)
-ax1.set_xlabel('Средняя энергичность', fontsize=12)
-for bar in ax1.patches:
-    ax1.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
-             f'{bar.get_width():.3f}', va='center', ha='left', fontsize=10)
+# Энергичность
+sns.barplot(data=energy_by_genre, x='Mean_Energy', y='Genre', 
+            palette='plasma_r', ax=ax1)
+ax1.set_title('Топ-10 жанров по энергичности', fontsize=14, pad=10)
+ax1.set_xlabel('Средняя энергичность')
 
-# График танцевальности
-sns.barplot(x='Mean_Danceability', y='Genre', data=dance_by_genre.head(10), 
-            palette='viridis', ax=ax2)
+# Танцевальность
+sns.barplot(data=dance_by_genre, x='Mean_Danceability', y='Genre', 
+            palette='viridis_r', ax=ax2)
 ax2.set_title('Топ-10 жанров по танцевальности', fontsize=14, pad=10)
-ax2.set_xlabel('Средняя танцевальность', fontsize=12)
-for bar in ax2.patches:
-    ax2.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
-             f'{bar.get_width():.3f}', va='center', ha='left', fontsize=10)
+ax2.set_xlabel('Средняя танцевальность')
 
+sns.despine()
 plt.tight_layout()
+
+# 3. Сохранение
+buffer = io.BytesIO()
+plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight')
+plt.show()
+buffer.seek(0)
+
+hdfs_path = '/user/hadoop/results/energy_danceability_seaborn.png'
+client = InsecureClient('http://hadoop:9870', user='root')
+client.makedirs(os.path.dirname(hdfs_path))
+with client.write(hdfs_path, overwrite=True) as writer:
+    writer.write(buffer.getvalue())
+print(f"Графики seaborn сохранены: {hdfs_path}")
 
 # 3. Сохранение в буфер и HDFS
 buffer = io.BytesIO()
