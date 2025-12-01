@@ -5,7 +5,6 @@
     * [Диаграмма в DRAWIO](/Lab2_TyapkinaPA.drawio);
 3. [Лабораторная работа №3 - Сравнение подходов хранения больших данных](Lab3_TyapkinaPA.md);
     * [Код из Jupyter Notebook](Lab3_TyapkinaPA.ipynb);
-4. 
-https://disk.yandex.ru/d/7V5E76y5RpEMqQ
-https://www.kaggle.com/datasets/zaheenhamidani/ultimate-spotify-tracks-db/data?select=SpotifyFeatures.csv
-Средние показатели "энергичность" и "танцевальность" по жанру
+4. [Лабораторная работа №4 - Развертывание и настройка Hadoop Анализ данных с использованием экосистемы Hadoop](earthquake_analysis2.ipynb);
+    * [Код для запуска данных](analyze_pandas.py); 
+5. [Лабораторная работа №5 - Обработка данных с использованием Apache Spark](advanced_pyspark_for_exploratory_data_analysis_student.ipynb);
