@@ -7,3 +7,5 @@
     * [Код из Jupyter Notebook](Lab3_TyapkinaPA.ipynb);
 4. 
 https://disk.yandex.ru/d/7V5E76y5RpEMqQ
+https://www.kaggle.com/datasets/zaheenhamidani/ultimate-spotify-tracks-db/data?select=SpotifyFeatures.csv
+Средние показатели "энергичность" и "танцевальность" по жанру
